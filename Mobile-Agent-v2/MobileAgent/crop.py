@@ -2,7 +2,6 @@ import math
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-import clip
 import torch
 
 
@@ -129,6 +128,7 @@ def clip_for_icon(clip_model, clip_preprocess, images, prompt):
         image_features.append(image_feature)
     image_features = torch.cat(image_features)
     
+    import clip
     text = clip.tokenize([prompt]).to(next(clip_model.parameters()).device)
     text_features = clip_model.encode_text(text)
 
@@ -139,3 +139,68 @@ def clip_for_icon(clip_model, clip_preprocess, images, prompt):
     pos = max_pos.item()
     
     return pos
+
+
+def draw_coordinates_on_image(image_path, coordinates):
+    image = Image.open(image_path)
+    draw = ImageDraw.Draw(image)
+    point_size = 10
+    for coord in coordinates:
+        draw.ellipse((coord[0] - point_size, coord[1] - point_size, coord[0] + point_size, coord[1] + point_size), fill='red')
+    output_image_path = './screenshot/output_image.png'
+    image.save(output_image_path)
+    return output_image_path
+
+
+def crop_save_tmp(image, box, i):
+    image = Image.open(image)
+    x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+    if x1 >= x2-10 or y1 >= y2-10:
+        return
+    cropped_image = image.crop((x1, y1, x2, y2))
+    cropped_image.save(f"./temp/{i}.jpg")
+
+
+def merge_text_blocks(text_list, coordinates_list):
+    merged_text_blocks = []
+    merged_coordinates = []
+
+    sorted_indices = sorted(range(len(coordinates_list)), key=lambda k: (coordinates_list[k][1], coordinates_list[k][0]))
+    sorted_text_list = [text_list[i] for i in sorted_indices]
+    sorted_coordinates_list = [coordinates_list[i] for i in sorted_indices]
+
+    num_blocks = len(sorted_text_list)
+    merge = [False] * num_blocks
+
+    for i in range(num_blocks):
+        if merge[i]:
+            continue
+        
+        anchor = i
+        
+        group_text = [sorted_text_list[anchor]]
+        group_coordinates = [sorted_coordinates_list[anchor]]
+
+        for j in range(i+1, num_blocks):
+            if merge[j]:
+                continue
+
+            if abs(sorted_coordinates_list[anchor][0] - sorted_coordinates_list[j][0]) < 10 and \
+            sorted_coordinates_list[j][1] - sorted_coordinates_list[anchor][3] >= -10 and sorted_coordinates_list[j][1] - sorted_coordinates_list[anchor][3] < 30 and \
+            abs(sorted_coordinates_list[anchor][3] - sorted_coordinates_list[anchor][1] - (sorted_coordinates_list[j][3] - sorted_coordinates_list[j][1])) < 10:
+                group_text.append(sorted_text_list[j])
+                group_coordinates.append(sorted_coordinates_list[j])
+                merge[anchor] = True
+                anchor = j
+                merge[anchor] = True
+
+        merged_text = "\n".join(group_text)
+        min_x1 = min(group_coordinates, key=lambda x: x[0])[0]
+        min_y1 = min(group_coordinates, key=lambda x: x[1])[1]
+        max_x2 = max(group_coordinates, key=lambda x: x[2])[2]
+        max_y2 = max(group_coordinates, key=lambda x: x[3])[3]
+
+        merged_text_blocks.append(merged_text)
+        merged_coordinates.append([min_x1, min_y1, max_x2, max_y2])
+
+    return merged_text_blocks, merged_coordinates
