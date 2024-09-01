@@ -4,9 +4,9 @@ import time
 import copy
 import torch
 import shutil
-from PIL import Image, ImageDraw
+from PIL import Image
 
-from MobileAgent.api import inference_chat, generate_local, process_image, generate_api
+from MobileAgent.api import inference_chat, generate_local, generate_api
 from MobileAgent.chat import add_response, add_response_two_image, print_status_func
 from MobileAgent.crop import draw_coordinates_on_image, crop_save_tmp, merge_text_blocks
 from MobileAgent.text_localization import ocr
@@ -216,7 +216,7 @@ def main():
 
         prompt_action = get_action_prompt(instruction, perception_infos, width, height, keyboard, summary_history, action_history, summary, action, add_info, error_flag, completed_requirements, memory)
         chat_action = add_response("user", prompt_action, chat_system_init_type='action', image=screenshot_file)
-        output_action = inference_chat(chat_action, 'gpt-4o', API_url, token, mode=chat_mode)
+        output_action = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 1: Action '.format(iter))
 
         thought = output_action.split("### Thought")[-1].split("### Action")[0].replace("\n", " ").replace(":", "").replace("  ", " ").strip()
         summary = output_action.split("### Operation")[-1].replace("\n", " ").replace("  ", " ").strip()
@@ -229,7 +229,7 @@ def main():
         if memory_switch:
             prompt_memory = get_memory_prompt(insight)
             chat_action = add_response("user", prompt_memory, chat_action)
-            output_memory = inference_chat(chat_action, 'gpt-4o', API_url, token, mode=chat_mode)
+            output_memory = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 2: Memory '.format(iter))
             chat_action = add_response("assistant", output_memory, chat_action)
             print_status_func(output_memory, " Memory ")
 
@@ -244,8 +244,8 @@ def main():
             for ti in range(len(text)):
                 if app_name == text[ti]:
                     name_coordinate = [int((coordinate[ti][0] + coordinate[ti][2])/2), int((coordinate[ti][1] + coordinate[ti][3])/2)]
-                    # tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1] + 30))
-                    tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1]))
+                    tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1] + 30))
+                    # tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1]))
         
         elif "Tap" in action:
             coordinate = action.split("(")[-1].split(")")[0].split(", ")
@@ -300,7 +300,8 @@ def main():
         if reflection_switch:
             prompt_reflect = get_reflect_prompt(instruction, last_perception_infos, perception_infos, width, height, last_keyboard, keyboard, summary, action, add_info)
             chat_reflect = add_response_two_image("user", prompt_reflect, chat_system_init_type='reflect', image=[last_screenshot_file, screenshot_file])
-            output_reflect = inference_chat(chat_reflect, 'gpt-4o', API_url, token, mode=chat_mode)
+            output_reflect = inference_chat(API_url, token, chat=chat_reflect, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 3: Reflect '.format(iter))
+            # import pdb;pdb.set_trace()
             reflect = output_reflect.split("### Answer ###")[-1].replace("\n", " ").strip()
             chat_reflect = add_response("assistant", output_reflect, chat_reflect)
             print_status_func(output_reflect, " Reflcetion ")
@@ -312,7 +313,7 @@ def main():
                 
                 prompt_planning = get_process_prompt(instruction, thought_history, summary_history, action_history, completed_requirements, add_info)
                 chat_planning = add_response("user", prompt_planning, chat_system_init_type='memory')
-                output_planning = inference_chat(chat_planning, 'gpt-4-turbo', API_url, token, mode=chat_mode)
+                output_planning = inference_chat(API_url, token, chat=chat_planning, model='gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Memory '.format(iter))
                 chat_planning = add_response("assistant", output_planning, chat_planning)
                 print_status_func(output_planning, " Planning ")
                 completed_requirements = output_planning.split("### Completed contents ###")[-1].replace("\n", " ").strip()
@@ -334,7 +335,7 @@ def main():
             
             prompt_planning = get_process_prompt(instruction, thought_history, summary_history, action_history, completed_requirements, add_info)
             chat_planning = add_response("user", prompt_planning, chat_system_init_type='memory')
-            output_planning = inference_chat(chat_planning, 'gpt-4-turbo', API_url, token, mode=chat_mode)
+            output_planning = inference_chat(API_url, token, chat_planning, 'gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Memory '.format(iter))
             chat_planning = add_response("assistant", output_planning, chat_planning)
             print_status_func(output_planning, " Planning ")
             completed_requirements = output_planning.split("### Completed contents ###")[-1].replace("\n", " ").strip()

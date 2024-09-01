@@ -101,7 +101,7 @@ def print_status(chat_history):
 
 
 def print_status_func(output_action, status_output):
-    status = "#" * 50 + status_output + "#" * 50
+    status = " " * 25 + "#" * 25 + status_output + "#" * 25 + " " * 25
     print(status)
     print(output_action)
     print('#' * len(status))

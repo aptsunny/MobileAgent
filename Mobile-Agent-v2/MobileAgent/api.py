@@ -1,29 +1,84 @@
 import base64
 import requests
+from .tik_count import num_tokens_from_messages, save_list_of_dicts_as_json, generate_filename
 
 def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-
-def inference_chat(chat, model, api_url, token, mode='requests'):
-    if mode == 'requests':
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}"
-        }
+def normalize_gpt4_input(func):
+    def wrapper(*args, **kwargs):
+        mode = kwargs.get('mode', '')
+        model_name = kwargs.get('model', '')
+        chat_info = kwargs.get('chat', '')
+        step = kwargs.get('step', '')
+        model_name = 'internlm2.5-latest' if mode == 'openai' else model_name
 
         data = {
-            "model": model,
+            "model": model_name,
             "messages": [],
             "max_tokens": 2048,
             'temperature': 0.0,
             "seed": 1234
         }
 
-        for role, content in chat:
-            data["messages"].append({"role": role, "content": content})
+        try:
+            for role, content in chat_info:
+                data["messages"].append({"role": role, "content": content})
+        except Exception as e:
+            print(f"处理聊天信息时出错: {e}")
+            return None
+        # import pdb;pdb.set_trace()
 
+        if mode == 'openai':
+            try:
+                # ignore assistant
+                # image_url = data['messages'][1]['content'][1]['≈']['url']
+                # data['messages'].append({"role": 'user', "content": 'image_url: {}'.format(image_url)})
+                if len(data['messages']) == 1:
+                    data['messages'][0]['content'] = data['messages'][0]['content'][0].get('text', '')
+                elif len(data['messages']) == 2:
+                    data['messages'][0]['content'] = data['messages'][0]['content'][0].get('text', '')
+                    data['messages'][1]['content'] = data['messages'][1]['content'][0].get('text', '')
+                elif len(data['messages']) == 4:
+                    data['messages'][0]['content'] = data['messages'][0]['content'][0].get('text', '')
+                    data['messages'][1]['content'] = data['messages'][1]['content'][0].get('text', '')
+                    data['messages'][2]['content'] = data['messages'][2]['content'][0].get('text', '')
+                    data['messages'][3]['content'] = data['messages'][3]['content'][0].get('text', '')
+                # Memory 4
+                # 加了Thought 、Action、 Response
+                # data['messages'][0]
+                # data['messages'][3]
+                # data['messages'][2]
+                # data['messages'][1]['content'][0]
+                # data['messages'][1]['content'][1] -> image
+            except IndexError:
+                print("数据格式不符合预期")
+                return None
+            except Exception as e:
+                print(f"处理 openai 模式时出错: {e}")
+                return None
+
+        save_list_of_dicts_as_json([data], filename='{}_output.json'.format(generate_filename(step)))
+
+        kwargs['data'] = data
+        try:
+            num_tokens_from_messages(data["messages"], step)
+        except Exception as e:
+            print(f"计算 Token 数量时出错: {e}")
+            return None
+
+        output = func(*args, **kwargs)
+        return output
+    return wrapper
+
+@normalize_gpt4_input
+def inference_chat(api_url, token, chat=None, model=None, data=None, mode='requests', step=None):
+    if mode == 'requests':
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
         while True:
             try:
                 res = requests.post(api_url, headers=headers, json=data)
@@ -38,43 +93,15 @@ def inference_chat(chat, model, api_url, token, mode='requests'):
                 break
     elif mode == 'openai':
         from openai import OpenAI
-
-        client = OpenAI(
-            api_key=token,  
-            base_url=api_url,
-        )
-
-        data = {
-            "model": "internlm2.5-latest",
-            "messages": [],
-            "max_tokens": 2048,
-            'temperature': 0.0,
-            "seed": 1234
-        }
-
-        for role, content in chat:
-            data["messages"].append({"role": role, "content": content})
-
-        ###
-        # image_url
-        # image_url = data['messages'][1]['content'][1]['≈']['url']
-        # import pdb;pdb.set_trace()
-        data['messages'][0]['content'] = data['messages'][0]['content'][0]['text'] # 系统
-        data['messages'][1]['content'] = data['messages'][1]['content'][0]['text'] # 用户,还包括截图
-
-        # image_url not support
-        # data['messages'].append({"role": 'user', "content": 'image_url: {}'.format(image_url)})
-
-        # ignore assistant
-        chat_rsp = client.chat.completions.create(**data)
-
+        client = OpenAI(api_key=token, base_url=api_url)
         while True:
             try:
+                chat_rsp = client.chat.completions.create(**data)
                 res_content = chat_rsp.choices[0].message.content
             except:
                 print("Network Error:")
                 try:
-                    print(chat_rsp.json())
+                    print(chat_rsp)
                 except:
                     print("Request Failed")
             else:
