@@ -13,6 +13,7 @@ from MobileAgent.text_localization import ocr
 from MobileAgent.icon_localization import det
 from MobileAgent.controller import get_screenshot, tap, slide, type, back, home
 from MobileAgent.prompt import get_action_prompt, get_reflect_prompt, get_memory_prompt, get_process_prompt
+from MobileAgent.tik_count import plot_values, plot_grouped_distribution
 
 torch.manual_seed(1234)
 
@@ -32,7 +33,7 @@ def parse_args():
                         default='api',
                         help='Method to call captioning service')
     parser.add_argument('--caption-model',
-                        choices=['qwen-vl-plus', 'qwen-vl-max'],
+                        choices=['qwen-vl-plus', 'qwen-vl-max', 'qwen-vl-chat-int4', 'qwen-vl-chat'],
                         default='qwen-vl-plus',
                         help='Caption model to use')
     parser.add_argument('--reflection-switch',
@@ -176,6 +177,7 @@ def main():
     ocr_detection, ocr_recognition = load_ocr_model()
 
     ### Init History ###
+    stat_info_history = []
     thought_history = []
     summary_history = []
     action_history = []
@@ -186,6 +188,7 @@ def main():
     insight = ""
     temp_file = "temp"
     screenshot = "screenshot"
+    memory_record = "memory_record"
     if not os.path.exists(temp_file):
         os.mkdir(temp_file)
     else:
@@ -193,6 +196,8 @@ def main():
         os.mkdir(temp_file)
     if not os.path.exists(screenshot):
         os.mkdir(screenshot)
+    if not os.path.exists(memory_record):
+        os.mkdir(memory_record)
     error_flag = False
 
     ### Loop ###
@@ -216,11 +221,14 @@ def main():
 
         prompt_action = get_action_prompt(instruction, perception_infos, width, height, keyboard, summary_history, action_history, summary, action, add_info, error_flag, completed_requirements, memory)
         chat_action = add_response("user", prompt_action, chat_system_init_type='action', image=screenshot_file)
-        output_action = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 1: Action '.format(iter))
+        output_action, stat_info = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 1: Action '.format(iter), record_file=memory_record)
+        stat_info_history.append(stat_info)
 
         thought = output_action.split("### Thought")[-1].split("### Action")[0].replace("\n", " ").replace(":", "").replace("  ", " ").strip()
         summary = output_action.split("### Operation")[-1].replace("\n", " ").replace("  ", " ").strip()
         action = output_action.split("### Action")[-1].split("### Operation")[0].replace("\n", " ").replace("  ", " ").strip()
+        # check perception_infos and action
+        # import pdb;pdb.set_trace()
 
         chat_action = add_response("assistant", output_action, chat_action)
         print_status_func(output_action, " Decision ")
@@ -229,7 +237,8 @@ def main():
         if memory_switch:
             prompt_memory = get_memory_prompt(insight)
             chat_action = add_response("user", prompt_memory, chat_action)
-            output_memory = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 2: Memory '.format(iter))
+            output_memory, stat_info = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 2: Memory '.format(iter), record_file=memory_record)
+            stat_info_history.append(stat_info)
             chat_action = add_response("assistant", output_memory, chat_action)
             print_status_func(output_memory, " Memory ")
 
@@ -300,8 +309,8 @@ def main():
         if reflection_switch:
             prompt_reflect = get_reflect_prompt(instruction, last_perception_infos, perception_infos, width, height, last_keyboard, keyboard, summary, action, add_info)
             chat_reflect = add_response_two_image("user", prompt_reflect, chat_system_init_type='reflect', image=[last_screenshot_file, screenshot_file])
-            output_reflect = inference_chat(API_url, token, chat=chat_reflect, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 3: Reflect '.format(iter))
-            # import pdb;pdb.set_trace()
+            output_reflect, stat_info = inference_chat(API_url, token, chat=chat_reflect, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 3: Reflect '.format(iter), record_file=memory_record)
+            stat_info_history.append(stat_info)
             reflect = output_reflect.split("### Answer ###")[-1].replace("\n", " ").strip()
             chat_reflect = add_response("assistant", output_reflect, chat_reflect)
             print_status_func(output_reflect, " Reflcetion ")
@@ -313,7 +322,8 @@ def main():
                 
                 prompt_planning = get_process_prompt(instruction, thought_history, summary_history, action_history, completed_requirements, add_info)
                 chat_planning = add_response("user", prompt_planning, chat_system_init_type='memory')
-                output_planning = inference_chat(API_url, token, chat=chat_planning, model='gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Memory '.format(iter))
+                output_planning, stat_info = inference_chat(API_url, token, chat=chat_planning, model='gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Memory '.format(iter), record_file=memory_record)
+                stat_info_history.append(stat_info)
                 chat_planning = add_response("assistant", output_planning, chat_planning)
                 print_status_func(output_planning, " Planning ")
                 completed_requirements = output_planning.split("### Completed contents ###")[-1].replace("\n", " ").strip()
@@ -335,12 +345,19 @@ def main():
             
             prompt_planning = get_process_prompt(instruction, thought_history, summary_history, action_history, completed_requirements, add_info)
             chat_planning = add_response("user", prompt_planning, chat_system_init_type='memory')
-            output_planning = inference_chat(API_url, token, chat_planning, 'gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Memory '.format(iter))
+            output_planning, stat_info = inference_chat(API_url, token, chat_planning, 'gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Memory '.format(iter), record_file=memory_record)
+            stat_info_history.append(stat_info)
             chat_planning = add_response("assistant", output_planning, chat_planning)
             print_status_func(output_planning, " Planning ")
             completed_requirements = output_planning.split("### Completed contents ###")[-1].replace("\n", " ").strip()
             
         os.remove(last_screenshot_file)
+
+        # if 'Iter4' in [k for k, _  in stat_info_history[-1].items()][0]:
+        #     import pdb;pdb.set_trace()
+        #     plot_grouped_distribution(stat_info_history)
+        # plot_values(stat_info_history)
+        # print(stat_info_history)
 
 
 if __name__ == '__main__':

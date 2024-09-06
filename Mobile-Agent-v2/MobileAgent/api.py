@@ -12,7 +12,11 @@ def normalize_gpt4_input(func):
         model_name = kwargs.get('model', '')
         chat_info = kwargs.get('chat', '')
         step = kwargs.get('step', '')
+        record_file = kwargs.get('record_file', '')
+        # 20B
         model_name = 'internlm2.5-latest' if mode == 'openai' else model_name
+        # 7B
+        # model_name = 'internlm2.5-7b-0627' if mode == 'openai' else model_name
 
         data = {
             "model": model_name,
@@ -59,11 +63,12 @@ def normalize_gpt4_input(func):
                 print(f"处理 openai 模式时出错: {e}")
                 return None
 
-        save_list_of_dicts_as_json([data], filename='{}_output.json'.format(generate_filename(step)))
+        save_list_of_dicts_as_json([data], filename='{}/{}_output.json'.format(record_file, generate_filename(step)))
 
         kwargs['data'] = data
         try:
-            num_tokens_from_messages(data["messages"], step)
+            step, num_tokens = num_tokens_from_messages(data["messages"], step)
+            kwargs['num_tokens'] = num_tokens
         except Exception as e:
             print(f"计算 Token 数量时出错: {e}")
             return None
@@ -73,7 +78,7 @@ def normalize_gpt4_input(func):
     return wrapper
 
 @normalize_gpt4_input
-def inference_chat(api_url, token, chat=None, model=None, data=None, mode='requests', step=None):
+def inference_chat(api_url, token, chat=None, model=None, data=None, mode='requests', step=None, record_file=None, num_tokens=None):
     if mode == 'requests':
         headers = {
             "Content-Type": "application/json",
@@ -106,7 +111,8 @@ def inference_chat(api_url, token, chat=None, model=None, data=None, mode='reque
                     print("Request Failed")
             else:
                 break
-    return res_content
+    # return res_content, dict(step=num_tokens)
+    return res_content, {step: num_tokens}
 
 
 def generate_local(tokenizer, model, image_file, query):

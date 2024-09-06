@@ -2,6 +2,9 @@ import re
 import json
 import tiktoken
 import matplotlib.pyplot as plt
+import numpy as np
+from collections import defaultdict
+from matplotlib.ticker import MaxNLocator
 
 def generate_filename(input_string):
     # 删除字符串中的所有空格
@@ -81,6 +84,93 @@ def save_list_of_dicts_as_json(data_list, filename='output.json'):
     print(f"数据已成功保存为 {filename}")
 
 
+def plot_values(data_list):
+    # 初始化一个字典来存储每个key的所有值
+    values_dict = {}
+    
+    # 遍历列表，收集每个字典的值
+    for item in data_list:
+        key = list(item.keys())[0]  # 获取字典的键
+        value = item[key]  # 获取字典的值
+        if key in values_dict:
+            values_dict[key].append(value)
+        else:
+            values_dict[key] = [value]
+    
+    # 准备数据用于绘图
+    keys = list(values_dict.keys())
+    values = [values_dict[key] for key in keys]
+    
+    # 绘制柱状图
+    x = np.arange(len(keys))  # 标签位置
+    width = 0.35  # 柱子的宽度
+    
+    fig, ax = plt.subplots()
+    rects = ax.bar(x, [sum(values[i]) for i in range(len(values))], width, label='Total Value')
+
+    # 添加文本标签、标题和自定义x轴刻度标签等
+    ax.set_xlabel('Step')
+    ax.set_ylabel('Numbers of Prompt')
+    ax.set_title('Sum of Values for Each Key')
+    ax.set_xticks(x)
+    ax.set_xticklabels(keys, rotation=45)
+    ax.legend()
+
+    # 填充柱状图的值
+    for i in range(len(values)):
+        ax.text(i, sum(values[i]), f'{sum(values[i])}', ha='center', va='bottom')
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_grouped_distribution(data_list, M=4):
+    # 初始化一个字典来存储每个组的数据
+    groups = {i: [] for i in range(M)}
+    
+    # 遍历列表，将数据分配到对应的组
+    for item in data_list:
+        key = list(item.keys())[0]  # 获取字典的键
+        value = item[key]  # 获取字典的值
+        # 将键映射到一个数字，然后根据这个数字分组
+        group_index = int(key.split('->')[-1].split(':')[0][-1]) - 1
+        groups[group_index].append(value)
+    
+    # 计算每行应该显示的子图数量
+    num_per_row = int(np.ceil(np.sqrt(M)))
+    
+    # 创建子图
+    fig, axs = plt.subplots(num_per_row, num_per_row, figsize=(10 * num_per_row, 4 * num_per_row), constrained_layout=True)
+    
+    # 使axs成为一个一维数组，方便迭代
+    axs = axs.flatten()
+    
+    # 定义一个颜色列表，用于区分不同的组
+    colors = plt.cm.tab10(np.linspace(0, 1, M))
+    
+    # 绘制每个组的统计分布图
+    for i, (group_key, values) in enumerate(groups.items()):
+        axs[i].hist(values, bins=20, color=colors[i], edgecolor='black', alpha=0.7)
+        axs[i].set_title(f'Step {group_key + 1}')
+        axs[i].set_xlabel('Value')
+        axs[i].set_ylabel('Frequency')
+        axs[i].tick_params(axis='x', labelsize=10)
+        axs[i].tick_params(axis='y', labelsize=10)
+        axs[i].xaxis.set_major_locator(MaxNLocator(integer=True))  # 确保x轴标签为整数
+        
+        # 添加网格线
+        axs[i].grid(True, linestyle='--', alpha=0.5)
+    
+    # 隐藏多余的子图
+    for j in range(i + 1, len(axs)):
+        axs[j].axis('off')
+    
+    # 调整布局
+    fig.suptitle('Distribution of Values by Decision Step', fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
 def num_tokens_from_messages(messages, step, model="gpt-4"):
     try:
         encoding = tiktoken.encoding_for_model(model)
@@ -125,9 +215,9 @@ def num_tokens_from_messages(messages, step, model="gpt-4"):
                 num_tokens += tokens_per_name
             
             if num_tokens < 5000:
-                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[:10]}")
+                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[:100]}")
             else:
                 print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}")
 
     print(f"{step}, 总Token数量: {num_tokens}")
-    return num_tokens
+    return step, num_tokens
