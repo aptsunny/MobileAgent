@@ -17,6 +17,10 @@ def normalize_gpt4_input(func):
         model_name = 'internlm2.5-latest' if mode == 'openai' else model_name
         # 7B
         # model_name = 'internlm2.5-7b-0627' if mode == 'openai' else model_name
+        # 6B xiaomi fail
+        model_name = 'MiLM2.1-6B-Chat' if mode == 'xiaomi' else model_name
+        # 13B xiaomi
+        # model_name = 'MiLM2.1-13B-Chat' if mode == 'xiaomi' else model_name
 
         data = {
             "model": model_name,
@@ -34,7 +38,7 @@ def normalize_gpt4_input(func):
             return None
         # import pdb;pdb.set_trace()
 
-        if mode == 'openai':
+        if mode in ['openai', 'xiaomi']:
             try:
                 # ignore assistant
                 # image_url = data['messages'][1]['content'][1]['≈']['url']
@@ -96,7 +100,7 @@ def inference_chat(api_url, token, chat=None, model=None, data=None, mode='reque
                     print("Request Failed")
             else:
                 break
-    elif mode == 'openai':
+    elif mode in ['openai', 'xiaomi']:
         from openai import OpenAI
         client = OpenAI(api_key=token, base_url=api_url)
         while True:

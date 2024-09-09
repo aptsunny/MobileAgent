@@ -114,6 +114,8 @@ def get_perception_infos(temp_file, adb_path, screenshot_file, qwen_api, caption
     for i in range(len(perception_infos)):
         perception_infos[i]['coordinates'] = [int((perception_infos[i]['coordinates'][0]+perception_infos[i]['coordinates'][2])/2), int((perception_infos[i]['coordinates'][1]+perception_infos[i]['coordinates'][3])/2)]
         
+    # import pdb;pdb.set_trace()
+    # perception_infos 的信息更全面
     return perception_infos, width, height
 
 
@@ -168,6 +170,7 @@ def main():
     reflection_switch = args.reflection_switch
     memory_switch = args.memory_switch
     chat_mode = 'openai' if 'internlm' in API_url else 'requests'
+    chat_mode = 'xiaomi' if 'preview' in API_url else chat_mode
     add_info = "If you want to tap an icon of an app, use the action \"Open app\". If you want to exit an app, use the action \"Home\""
 
     ### Load caption model ###
@@ -224,6 +227,7 @@ def main():
         output_action, stat_info = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 1: Action '.format(iter), record_file=memory_record)
         stat_info_history.append(stat_info)
 
+        # import pdb;pdb.set_trace()
         thought = output_action.split("### Thought")[-1].split("### Action")[0].replace("\n", " ").replace(":", "").replace("  ", " ").strip()
         summary = output_action.split("### Operation")[-1].replace("\n", " ").replace("  ", " ").strip()
         action = output_action.split("### Action")[-1].split("### Operation")[0].replace("\n", " ").replace("  ", " ").strip()
