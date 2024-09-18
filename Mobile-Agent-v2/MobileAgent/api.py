@@ -36,7 +36,6 @@ def normalize_gpt4_input(func):
         except Exception as e:
             print(f"处理聊天信息时出错: {e}")
             return None
-        # import pdb;pdb.set_trace()
 
         if mode in ['openai', 'xiaomi']:
             try:
@@ -71,6 +70,7 @@ def normalize_gpt4_input(func):
 
         kwargs['data'] = data
         try:
+            # import pdb;pdb.set_trace() # data['messages'][1]['content']
             step, num_tokens = num_tokens_from_messages(data["messages"], step)
             kwargs['num_tokens'] = num_tokens
         except Exception as e:

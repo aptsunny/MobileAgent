@@ -146,20 +146,15 @@ def draw_coordinates_on_image(image_path, coordinates):
     draw = ImageDraw.Draw(image)
     point_size = 10
 
-    # label
-    font = ImageFont.truetype("arial.ttf", 20)
-    text_color = (255, 0, 0)
-
     for coord in coordinates:
         draw.ellipse((coord[0] - point_size, coord[1] - point_size, coord[0] + point_size, coord[1] + point_size), fill='red')
 
         # label
         text = "{}, {}".format(coord[0],coord[1])
-        draw.text((coord[0] + 20, coord[1] + 20), text, font=font, fill=text_color)
+        draw.text((coord[0] + 20, coord[1] + 20), text, fill=(255, 0, 0))
 
     output_image_path = './screenshot/output_image.png'
     image.save(output_image_path)
-    # import pdb;pdb.set_trace()
     return output_image_path
 
 

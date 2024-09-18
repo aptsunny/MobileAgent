@@ -192,32 +192,34 @@ def num_tokens_from_messages(messages, step, model="gpt-4"):
     for message in messages:
         num_tokens += tokens_per_message
         for key, value in message.items():
-
-            try:
-                if isinstance(value, str):
-                    normal_tokens = len(encoding.encode(value))
-                    num_tokens += normal_tokens
-                    status = 'normal_str_input'
-                elif isinstance(value, list):
-                    for item in value:
-                        if 'text' in item:
-                            current_tokens = len(encoding.encode(item['text']))
-                            num_tokens += current_tokens
-                        elif 'image_url' in item:
-                            current_image_tokens = len(encoding.encode(item['image_url']['url']))
-                            num_tokens += current_image_tokens
-                    status = 'list'
-            except tiktoken.exceptions.EncodingError as e:
-                print(f"Encoding error: {e}")
-                import pdb; pdb.set_trace()
-
-            if key == "name":
+            if key in ['name', 'role']:
                 num_tokens += tokens_per_name
-            
-            if num_tokens < 5000:
-                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[:100]}")
+            elif key == 'content':
+                try:
+                    if isinstance(value, str):
+                        normal_tokens = len(encoding.encode(value))
+                        num_tokens += normal_tokens
+                        status = 'encode_str_input'
+                    elif isinstance(value, list):
+                        for item in value:
+                            if 'text' in item:
+                                current_tokens = len(encoding.encode(item['text']))
+                                num_tokens += current_tokens
+                            elif 'image_url' in item:
+                                pass
+                                # image
+                                # current_image_tokens = len(encoding.encode(item['image_url']['url']))
+                                # num_tokens += current_image_tokens
+                        status = 'list'
+                except tiktoken.exceptions.EncodingError as e:
+                    print(f"Encoding error: {e}")
+
+                if num_tokens < 5000:
+                    print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[:100]}")
+                else:
+                    print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}")
             else:
-                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}")
+                import pdb;pdb.set_trace()
 
     print(f"{step}, 总Token数量: {num_tokens}")
     return step, num_tokens
