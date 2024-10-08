@@ -23,8 +23,15 @@ def init_memory_chat():
     return operation_history
 
 
-def add_response(role, prompt, chat_history, image=None):
-    new_chat_history = copy.deepcopy(chat_history)
+def add_response(role, prompt, chat_history=None, chat_system_init_type=None, image=None):
+    if chat_system_init_type == 'action':
+        new_chat_history = init_action_chat()
+    elif chat_system_init_type == 'reflect':
+        new_chat_history = init_reflect_chat()
+    elif chat_system_init_type == 'memory':
+        new_chat_history = init_memory_chat()
+    else:
+        new_chat_history = copy.deepcopy(chat_history)
     if image:
         base64_image = encode_image(image)
         content = [
@@ -50,8 +57,15 @@ def add_response(role, prompt, chat_history, image=None):
     return new_chat_history
 
 
-def add_response_two_image(role, prompt, chat_history, image):
-    new_chat_history = copy.deepcopy(chat_history)
+def add_response_two_image(role, prompt, chat_history=None, chat_system_init_type=None, image=None):
+    if chat_system_init_type == 'action':
+        new_chat_history = init_action_chat()
+    elif chat_system_init_type == 'reflect':
+        new_chat_history = init_reflect_chat()
+    elif chat_system_init_type == 'memory':
+        new_chat_history = init_memory_chat()
+    else:
+        new_chat_history = copy.deepcopy(chat_history)
 
     base64_image1 = encode_image(image[0])
     base64_image2 = encode_image(image[1])
@@ -84,3 +98,12 @@ def print_status(chat_history):
         print("role:", chat[0])
         print(chat[1][0]["text"] + "<image>"*(len(chat[1])-1) + "\n")
     print("*"*100)
+
+
+def print_status_func(output_action, status_output):
+    status = " " * 25 + "#" * 25 + status_output + "#" * 25 + " " * 25
+    print("\n")
+    print(status)
+    print(output_action)
+    print('#' * len(status))
+    print("\n")

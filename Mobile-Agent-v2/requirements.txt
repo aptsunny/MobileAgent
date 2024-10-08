@@ -1,8 +1,10 @@
-torch
-torchvision
-transformers
+# torch
+# torchvision
+# transformers
 modelscope==1.15.0
 TensorFlow==2.9.1
+# for macos
+# tensorflow-macos==2.9.1
 keras==2.9.0
 git+https://github.com/openai/CLIP.git
 opencv-python
@@ -15,3 +17,11 @@ tf_keras==2.15.0
 pyclipper
 shapely
 supervision==0.21.0
+# einops==0.8.0
+# windows extra
+openai
+dashscope
+transformers_stream_generator
+# quant
+optimum
+auto-gptq
