@@ -38,6 +38,14 @@ def parse_args():
                         choices=['api', 'local'],
                         default='api',
                         help='Method to call captioning service')
+    parser.add_argument('--gpt-decision-model',
+                        choices=['gpt-4o', 'gpt-4o-mini'],
+                        default='gpt-4o',
+                        help='x')
+    parser.add_argument('--gpt-planning-model',
+                        choices=['gpt-4-turbo', 'gpt-3.5-turbo-0125'],
+                        default='gpt-4-turbo',
+                        help='x')
     parser.add_argument('--caption-model',
                         choices=['qwen-vl-plus', 'qwen-vl-max', 'qwen-vl-chat-int4', 'qwen-vl-chat'],
                         default='qwen-vl-plus',
@@ -120,6 +128,7 @@ def get_perception_infos(temp_file, adb_path, screenshot_file, qwen_api, caption
     for i in range(len(perception_infos)):
         perception_infos[i]['coordinates'] = [int((perception_infos[i]['coordinates'][0]+perception_infos[i]['coordinates'][2])/2), int((perception_infos[i]['coordinates'][1]+perception_infos[i]['coordinates'][3])/2)]
         
+    # import pdb;pdb.set_trace()
     return perception_infos, width, height
 
 
@@ -246,6 +255,8 @@ def main():
     adb_path = args.adb_path
     API_url = args.api_url
     caption_call_method = args.caption_call_method
+    gpt_decision_model = args.gpt_decision_model
+    gpt_planning_model = args.gpt_planning_model
     caption_model = args.caption_model
     reflection_switch = args.reflection_switch
     memory_switch = args.memory_switch
@@ -305,7 +316,7 @@ def main():
         # Phase1: Action
         prompt_action = get_action_prompt(instruction, perception_infos, width, height, keyboard, summary_history, action_history, summary, action, add_info, error_flag, completed_requirements, memory)
         chat_action = add_response("user", prompt_action, chat_system_init_type='action', image=screenshot_file)
-        output_action, stat_info = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 1: Action '.format(iter), record_file=memory_record)
+        output_action, stat_info = inference_chat(API_url, token, chat=chat_action, model=gpt_decision_model, mode=chat_mode, step=' Iter{} -> 1: Action '.format(iter), record_file=memory_record)
         stat_info_history.append(stat_info)
 
         thought = output_action.split("### Thought")[-1].split("### Action")[0].replace("\n", " ").replace(":", "").replace("  ", " ").strip()
@@ -319,7 +330,7 @@ def main():
         if memory_switch:
             prompt_memory = get_memory_prompt(insight)
             chat_action = add_response("user", prompt_memory, chat_action)
-            output_memory, stat_info = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 2: Memory '.format(iter), record_file=memory_record)
+            output_memory, stat_info = inference_chat(API_url, token, chat=chat_action, model=gpt_decision_model, mode=chat_mode, step=' Iter{} -> 2: Memory '.format(iter), record_file=memory_record)
             stat_info_history.append(stat_info)
             chat_action = add_response("assistant", output_memory, chat_action)
             print_status_func(output_memory, " Memory ")
@@ -357,7 +368,7 @@ def main():
         if reflection_switch:
             prompt_reflect = get_reflect_prompt(instruction, last_perception_infos, perception_infos, width, height, last_keyboard, keyboard, summary, action, add_info)
             chat_reflect = add_response_two_image("user", prompt_reflect, chat_system_init_type='reflect', image=[last_screenshot_file, screenshot_file])
-            output_reflect, stat_info = inference_chat(API_url, token, chat=chat_reflect, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 3: Reflect '.format(iter), record_file=memory_record)
+            output_reflect, stat_info = inference_chat(API_url, token, chat=chat_reflect, model=gpt_decision_model, mode=chat_mode, step=' Iter{} -> 3: Reflect '.format(iter), record_file=memory_record)
             stat_info_history.append(stat_info)
             reflect = output_reflect.split("### Answer ###")[-1].replace("\n", " ").strip()
             chat_reflect = add_response("assistant", output_reflect, chat_reflect)
@@ -371,7 +382,7 @@ def main():
                 # Phase4: Planning
                 prompt_planning = get_process_prompt(instruction, thought_history, summary_history, action_history, completed_requirements, add_info)
                 chat_planning = add_response("user", prompt_planning, chat_system_init_type='memory')
-                output_planning, stat_info = inference_chat(API_url, token, chat=chat_planning, model='gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Planning '.format(iter), record_file=memory_record)
+                output_planning, stat_info = inference_chat(API_url, token, chat=chat_planning, model=gpt_planning_model, mode=chat_mode, step=' Iter{} -> 4: Planning '.format(iter), record_file=memory_record)
                 stat_info_history.append(stat_info)
                 chat_planning = add_response("assistant", output_planning, chat_planning)
                 print_status_func(output_planning, " Planning ")
@@ -402,7 +413,7 @@ def main():
             # Phase4: Planning
             prompt_planning = get_process_prompt(instruction, thought_history, summary_history, action_history, completed_requirements, add_info)
             chat_planning = add_response("user", prompt_planning, chat_system_init_type='memory')
-            output_planning, stat_info = inference_chat(API_url, token, chat=chat_planning, model='gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Planning '.format(iter), record_file=memory_record)
+            output_planning, stat_info = inference_chat(API_url, token, chat=chat_planning, model=gpt_planning_model, mode=chat_mode, step=' Iter{} -> 4: Planning '.format(iter), record_file=memory_record)
             stat_info_history.append(stat_info)
             chat_planning = add_response("assistant", output_planning, chat_planning)
             print_status_func(output_planning, " Planning ")

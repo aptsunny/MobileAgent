@@ -93,6 +93,7 @@ def normalize_gpt4_input(func):
         save_list_of_dicts_as_json([data], filename='{}/{}_input.json'.format(record_file, generate_filename(step)))
         kwargs['data'] = data
         try:
+            # import pdb;pdb.set_trace() # data['messages'][1]['content']
             step, num_tokens = num_tokens_from_messages(data["messages"], step)
             kwargs['num_tokens'] = num_tokens
         except Exception as e:
