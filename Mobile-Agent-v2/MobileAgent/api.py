@@ -1,10 +1,57 @@
 import base64
 import requests
-from .tik_count import num_tokens_from_messages, save_list_of_dicts_as_json, generate_filename
+from .tik_count import num_tokens_from_messages, save_list_of_dicts_as_json, generate_filename, update_value_in_dict_single_key
+
+def get_chat_mode(API_url, chat_mode='requests'):
+    # MiLM2.1-13B-Chat
+    MILM_URL = "http://preview-general-llm.api.ai.srv/v1/"
+
+    if not API_url:
+        raise ValueError("API_url cannot be empty")
+
+    if 'internlm' in API_url:
+        chat_mode = 'openai'
+    elif API_url == MILM_URL:
+        chat_mode = 'xiaomi'
+    elif 'huiwen' in API_url or 'yashan' in API_url:
+        chat_mode = 'mi_requests'
+
+    return chat_mode
+
+
+def get_chat_data(model_name, chat_mode='requests'):
+    model_mapping = {
+        'openai': 'internlm2.5-latest',
+        'xiaomi': 'MiLM2.1-13B-Chat',
+        'mi_requests': 'gpt4o/gpt4v',
+        'requests': model_name,
+    }
+
+    if chat_mode in model_mapping:
+        model_name = model_mapping[chat_mode]
+    else:
+        raise ValueError(f"Invalid chat_mode: {chat_mode}. Expected one of: {list(model_mapping.keys())}")
+
+    data = {
+        "model": model_name,
+        "messages": [],
+        "max_tokens": 2048,
+        'temperature': 0.0,
+        "seed": 1234
+    }
+
+    # mi_requests del model
+    if chat_mode == 'mi_requests':
+        if "model" in data:
+            del data["model"]
+
+    return data
+
 
 def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
+
 
 def normalize_gpt4_input(func):
     def wrapper(*args, **kwargs):
@@ -13,22 +60,7 @@ def normalize_gpt4_input(func):
         chat_info = kwargs.get('chat', '')
         step = kwargs.get('step', '')
         record_file = kwargs.get('record_file', '')
-        # 20B：internlm2.5-latest，7B：internlm2.5-7b-0627
-        model_name = 'internlm2.5-latest' if mode == 'openai' else model_name
-        # 13B xiaomi
-        # model_name = 'MiLM2.1-13B-Chat' if mode == 'xiaomi' else model_name
-
-        data = {
-            "model": model_name,
-            "messages": [],
-            "max_tokens": 2048,
-            'temperature': 0.0,
-            "seed": 1234
-        }
-
-        # mi_requests 不需要传入model字段
-        if mode == 'mi_requests':
-            del data["model"]
+        data = get_chat_data(model_name, mode)
 
         try:
             for role, content in chat_info:
@@ -42,7 +74,8 @@ def normalize_gpt4_input(func):
 
         # save_list_of_dicts_as_json([data], filename='{}/{}_before_process.json'.format(record_file, generate_filename(step)))
 
-        if mode in ['openai', 'xiaomi']: # only chat model
+        # only chat model
+        if mode in ['openai', 'xiaomi']:
             try:
                 # ignore assistant
                 # image_url = data['messages'][1]['content'][1]['≈']['url']
@@ -72,7 +105,7 @@ def normalize_gpt4_input(func):
                 return None
         if mode == 'mi_requests':
             try:
-                # action_input
+                # action_input stage1/2/3/4
                 if len(data['messages']) == 2:
                     data['messages'][0]['content'] = data['messages'][0]['content'][0].get('text', '')
                     # data['messages'][1]['content'] = data['messages'][1]['content'][0].get('text', '')
@@ -93,24 +126,29 @@ def normalize_gpt4_input(func):
         save_list_of_dicts_as_json([data], filename='{}/{}_input.json'.format(record_file, generate_filename(step)))
         kwargs['data'] = data
         try:
-            # import pdb;pdb.set_trace() # data['messages'][1]['content']
-            step, num_tokens = num_tokens_from_messages(data["messages"], step)
-            kwargs['num_tokens'] = num_tokens
+            # data['messages'][1]['content']
+            step, num_input_tokens = num_tokens_from_messages(data["messages"], step)
+            kwargs['num_input_tokens'] = num_input_tokens
         except Exception as e:
-            print(f"计算 Token 数量时出错: {e}")
+            print(f"计算 Input Token 数量时出错: {e}")
             return None
 
         output = func(*args, **kwargs)
 
         output_info = [dict(result=output[0])]
         save_list_of_dicts_as_json(output_info, filename='{}/{}_output.json'.format(record_file, generate_filename(step)))
-        output_step = '{} output'.format(step)
-        num_tokens_from_messages(output_info, output_step)
+        try:
+            _, num_output_tokens = num_tokens_from_messages(output_info, '{} output'.format(step))
+            update_value_in_dict_single_key(output[1], num_output_tokens)
+        except Exception as e:
+            print(f"计算 Output Token 数量时出错: {e}")
+            return None
+
         return output
     return wrapper
 
 @normalize_gpt4_input
-def inference_chat(api_url, token, chat=None, model=None, data=None, mode='requests', step=None, record_file=None, num_tokens=None):
+def inference_chat(api_url, token, chat=None, model=None, data=None, mode='requests', step=None, record_file=None, num_input_tokens=None, num_output_tokens=None):
     if mode == 'requests':
         headers = {
             "Content-Type": "application/json",
@@ -129,8 +167,8 @@ def inference_chat(api_url, token, chat=None, model=None, data=None, mode='reque
             else:
                 break
     elif mode == 'mi_requests':
-        api_urls = []
-        api_urls = [item for item in api_urls for _ in range(50)]
+        api_urls = ['http://preview-general-llm.api.ai.srv/api/gpt-4o/liuhuiwen']
+        api_urls = [item for item in api_urls for _ in range(10)]
         import random;random.shuffle(api_urls)
 
         attempt_count = 0
@@ -141,11 +179,11 @@ def inference_chat(api_url, token, chat=None, model=None, data=None, mode='reque
                 attempt_count += 1
                 print(f"请求第{attempt_count}次，第{attempt_count}次使用的API是：{api_url}")
                 response = requests.post(api_url, json=data)
-                # 如果响应状态码不是200，将抛出HTTPError异常
-                # response.raise_for_status() 
                 response_data = response.json()
                 
                 if 'response' in response_data:
+                    # 如果响应状态码不是200，将抛出HTTPError异常
+                    # response.raise_for_status()
                     res_content = response_data['response']
                     if 'ERROR' not in res_content:
                         successful_api_url = api_url
@@ -174,8 +212,8 @@ def inference_chat(api_url, token, chat=None, model=None, data=None, mode='reque
                     print("Request Failed")
             else:
                 break
-    # return res_content, dict(step=num_tokens)
-    return res_content, {step: num_tokens}
+
+    return res_content, {step: [num_input_tokens, num_output_tokens]}
 
 
 def generate_local(tokenizer, model, image_file, query):
@@ -187,10 +225,10 @@ def generate_local(tokenizer, model, image_file, query):
     return response
 
 
-def process_image(image, query, qwen_api, caption_model):
+def process_image(image, query, qwen_token, caption_model):
     import dashscope
     from dashscope import MultiModalConversation
-    dashscope.api_key = qwen_api
+    dashscope.api_key = qwen_token
 
     messages = [{
         'role': 'user',
@@ -213,11 +251,11 @@ def process_image(image, query, qwen_api, caption_model):
     return response
 
 
-def generate_api(images, query, qwen_api, caption_model):
+def generate_api(images, query, qwen_token, caption_model):
     import concurrent
     icon_map = {}
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {executor.submit(process_image, image, query, qwen_api, caption_model): i for i, image in enumerate(images)}
+        futures = {executor.submit(process_image, image, query, qwen_token, caption_model): i for i, image in enumerate(images)}
         
         for future in concurrent.futures.as_completed(futures):
             i = futures[future]

@@ -148,7 +148,6 @@ def get_memory_prompt(insight):
     
     return prompt
 
-
 def get_process_prompt(instruction, thought_history, summary_history, action_history, completed_content, add_info):
     prompt = "### Background ###\n"
     prompt += f"There is an user\'s instruction which is: {instruction}. You are a mobile phone operating assistant and are operating the user\'s mobile phone.\n\n"

@@ -9,14 +9,14 @@ import torch
 import shutil
 from PIL import Image
 
-from MobileAgent.api import inference_chat, generate_local, generate_api
+from MobileAgent.api import inference_chat, generate_local, generate_api, get_chat_mode
 from MobileAgent.chat import add_response, add_response_two_image, print_status_func
 from MobileAgent.crop import draw_coordinates_on_image, crop_save_tmp, merge_text_blocks
 from MobileAgent.text_localization import ocr
 from MobileAgent.icon_localization import det
 from MobileAgent.controller import get_screenshot, tap, slide, type, back, home
 from MobileAgent.prompt import get_action_prompt, get_reflect_prompt, get_memory_prompt, get_process_prompt
-from MobileAgent.tik_count import plot_values, plot_grouped_distribution
+from MobileAgent.tik_count import plot_grouped_distribution_entire, plot_values_entire
 from MobileAgent.visual_action import ScreenshotManager
 
 exit_loop = False
@@ -27,7 +27,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='MobileAgent Test')
     parser.add_argument('instruction', help='Path to the training configuration file')
     parser.add_argument('token', help='Authentication token for API access')
-    parser.add_argument('qwen_api', help='API endpoint for Qwen')
+    parser.add_argument('qwen_token', help='API endpoint for Qwen')
     parser.add_argument('--adb-path',
                         default=os.getenv('ADB_PATH', '/Users/sunyue/Downloads/platform-tools/adb'),
                         help='Path to the adb executable')
@@ -58,6 +58,10 @@ def parse_args():
                         action='store_true',
                         default=False,
                         help='Enable memory switch')
+    parser.add_argument('--plot-number-of-token',
+                        action='store_true',
+                        default=False,
+                        help='enable automatic-mixed-precision training')
     try:
         args = parser.parse_args()
     except SystemExit as e:
@@ -67,7 +71,7 @@ def parse_args():
     return args
 
 
-def get_perception_infos(temp_file, adb_path, screenshot_file, qwen_api, caption_call_method, caption_model, tokenizer, model, ocr_detection, ocr_recognition, groundingdino_model):
+def get_perception_infos(temp_file, adb_path, screenshot_file, qwen_token, caption_call_method, caption_model, tokenizer, model, ocr_detection, ocr_recognition, groundingdino_model):
     get_screenshot(adb_path)
     
     width, height = Image.open(screenshot_file).size
@@ -120,7 +124,7 @@ def get_perception_infos(temp_file, adb_path, screenshot_file, qwen_api, caption
         else:
             for i in range(len(images)):
                 images[i] = os.path.join(temp_file, images[i])
-            icon_map = generate_api(images, prompt, qwen_api, caption_model)
+            icon_map = generate_api(images, prompt, qwen_token, caption_model)
         for i, j in zip(image_id, range(1, len(image_id)+1)):
             if icon_map.get(j):
                 perception_infos[i]['text'] = "icon: " + icon_map[j]
@@ -171,23 +175,6 @@ def load_ocr_model():
     return ocr_detection, ocr_recognition
 
 
-def get_chat_mode(API_url, chat_mode='requests'):
-    # MiLM2.1-13B-Chat
-    MILM_URL = "http://preview-general-llm.api.ai.srv/v1/"
-
-    if not API_url:
-        raise ValueError("API_url cannot be empty")
-
-    if 'internlm' in API_url:
-        chat_mode = 'openai'
-    elif API_url == MILM_URL:
-        chat_mode = 'xiaomi'
-    elif 'huiwen' in API_url or 'yashan' in API_url:
-        chat_mode = 'mi_requests'
-
-    return chat_mode
-
-
 def adb_visualize(iter, action, adb_path, screenshot_file, ocr_detection, ocr_recognition):
     global exit_loop
     source_path = './screenshot/output_image.png'
@@ -199,7 +186,7 @@ def adb_visualize(iter, action, adb_path, screenshot_file, ocr_detection, ocr_re
         app_name = action.split("(")[-1].split(")")[0]
         text, coordinate = ocr(screenshot_file, ocr_detection, ocr_recognition)
         for ti in range(len(text)):
-            # 图表和文字都有text 例如小红书
+            # `图标`和`文字`都有text 例如小红书 则会Tapb(小红书)两次
             if app_name == text[ti]:
                 name_coordinate = [int((coordinate[ti][0] + coordinate[ti][2])/2), int((coordinate[ti][1] + coordinate[ti][3])/2)]
                 # tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1] + 30))
@@ -243,7 +230,7 @@ def adb_visualize(iter, action, adb_path, screenshot_file, ocr_detection, ocr_re
         # break
 
     os.remove(destination_path)
-    # time.sleep(5)
+    time.sleep(5)
     return
 
 
@@ -251,7 +238,7 @@ def main():
     args = parse_args()
     instruction = args.instruction
     token = args.token
-    qwen_api = args.qwen_api
+    qwen_token = args.qwen_token
     adb_path = args.adb_path
     API_url = args.api_url
     caption_call_method = args.caption_call_method
@@ -260,6 +247,7 @@ def main():
     caption_model = args.caption_model
     reflection_switch = args.reflection_switch
     memory_switch = args.memory_switch
+    plot_number_of_token = args.plot_number_of_token
     chat_mode = get_chat_mode(API_url)
     add_info = "If you want to tap an icon of an app, use the action \"Open app\". If you want to exit an app, use the action \"Home\""
 
@@ -300,7 +288,7 @@ def main():
 
         if iter == 1:
             screenshot_file = "./screenshot/screenshot.jpg"
-            perception_infos, width, height = get_perception_infos(temp_file, adb_path, screenshot_file, qwen_api, caption_call_method, caption_model, tokenizer, model, ocr_detection, ocr_recognition, groundingdino_model)
+            perception_infos, width, height = get_perception_infos(temp_file, adb_path, screenshot_file, qwen_token, caption_call_method, caption_model, tokenizer, model, ocr_detection, ocr_recognition, groundingdino_model)
             shutil.rmtree(temp_file)
             os.mkdir(temp_file)
             
@@ -352,7 +340,7 @@ def main():
             os.remove(last_screenshot_file)
         os.rename(screenshot_file, last_screenshot_file)
         
-        perception_infos, width, height = get_perception_infos(temp_file, adb_path, screenshot_file, qwen_api, caption_call_method, caption_model, tokenizer, model, ocr_detection, ocr_recognition, groundingdino_model)
+        perception_infos, width, height = get_perception_infos(temp_file, adb_path, screenshot_file, qwen_token, caption_call_method, caption_model, tokenizer, model, ocr_detection, ocr_recognition, groundingdino_model)
         shutil.rmtree(temp_file)
         os.mkdir(temp_file)
         
@@ -419,12 +407,10 @@ def main():
             print_status_func(output_planning, " Planning ")
             completed_requirements = output_planning.split("### Completed contents ###")[-1].replace("\n", " ").strip()
 
-        # print(stat_info_history)
-        # if 'Iter4' in [k for k, _  in stat_info_history[-1].items()][0]:
-        #     import pdb;pdb.set_trace()
-        #     plot_grouped_distribution(stat_info_history)
-        # plot_values(stat_info_history)
-
+        if plot_number_of_token:
+            if 'Iter4' in [k for k, _  in stat_info_history[-1].items()][0] and reflection_switch and memory_switch:
+                plot_grouped_distribution_entire(stat_info_history)
+            plot_values_entire(stat_info_history)
 
 if __name__ == '__main__':
     main()
