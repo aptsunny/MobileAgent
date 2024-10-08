@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
 import argparse
 import os
 import time
@@ -14,6 +17,9 @@ from MobileAgent.icon_localization import det
 from MobileAgent.controller import get_screenshot, tap, slide, type, back, home
 from MobileAgent.prompt import get_action_prompt, get_reflect_prompt, get_memory_prompt, get_process_prompt
 from MobileAgent.tik_count import plot_values, plot_grouped_distribution
+from MobileAgent.visual_action import ScreenshotManager
+
+exit_loop = False
 
 torch.manual_seed(1234)
 
@@ -114,8 +120,6 @@ def get_perception_infos(temp_file, adb_path, screenshot_file, qwen_api, caption
     for i in range(len(perception_infos)):
         perception_infos[i]['coordinates'] = [int((perception_infos[i]['coordinates'][0]+perception_infos[i]['coordinates'][2])/2), int((perception_infos[i]['coordinates'][1]+perception_infos[i]['coordinates'][3])/2)]
         
-    # import pdb;pdb.set_trace()
-    # perception_infos 的信息更全面
     return perception_infos, width, height
 
 
@@ -158,6 +162,82 @@ def load_ocr_model():
     return ocr_detection, ocr_recognition
 
 
+def get_chat_mode(API_url, chat_mode='requests'):
+    # MiLM2.1-13B-Chat
+    MILM_URL = "http://preview-general-llm.api.ai.srv/v1/"
+
+    if not API_url:
+        raise ValueError("API_url cannot be empty")
+
+    if 'internlm' in API_url:
+        chat_mode = 'openai'
+    elif API_url == MILM_URL:
+        chat_mode = 'xiaomi'
+    elif 'huiwen' in API_url or 'yashan' in API_url:
+        chat_mode = 'mi_requests'
+
+    return chat_mode
+
+
+def adb_visualize(iter, action, adb_path, screenshot_file, ocr_detection, ocr_recognition):
+    global exit_loop
+    source_path = './screenshot/output_image.png'
+    destination_path = './memory_record/Iter{}_vis_action.png'.format(iter)
+    shutil.copy(source_path, destination_path)
+    screenshot_manager = ScreenshotManager(destination_path, iter)
+
+    if "Open app" in action:
+        app_name = action.split("(")[-1].split(")")[0]
+        text, coordinate = ocr(screenshot_file, ocr_detection, ocr_recognition)
+        for ti in range(len(text)):
+            # 图表和文字都有text 例如小红书
+            if app_name == text[ti]:
+                name_coordinate = [int((coordinate[ti][0] + coordinate[ti][2])/2), int((coordinate[ti][1] + coordinate[ti][3])/2)]
+                # tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1] + 30))
+                tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1]))
+                screenshot_manager.tap(name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1]))
+                break
+
+    elif "Tap" in action:
+        coordinate = action.split("(")[-1].split(")")[0].split(", ")
+        x, y = int(coordinate[0]), int(coordinate[1])
+        tap(adb_path, x, y)
+        screenshot_manager.tap(x, y)
+
+    elif "Swipe" in action:
+        coordinate1 = action.split("Swipe (")[-1].split("), (")[0].split(", ")
+        coordinate2 = action.split("), (")[-1].split(")")[0].split(", ")
+        x1, y1 = int(coordinate1[0]), int(coordinate1[1])
+        x2, y2 = int(coordinate2[0]), int(coordinate2[1])
+        slide(adb_path, x1, y1, x2, y2)
+        screenshot_manager.swipe(x1, y1, x2, y2)
+
+    elif "Type" in action:
+        if "(text)" not in action:
+            text = action.split("(")[-1].split(")")[0]
+        else:
+            text = action.split(" \"")[-1].split("\"")[0]
+        type(adb_path, text)
+        screenshot_manager.type(text, x=1440//2, y=3200//2)
+
+    elif "Back" in action:
+        back(adb_path)
+        screenshot_manager.back(x=1440//2, y=3200//2)
+
+    elif "Home" in action:
+        home(adb_path)
+        screenshot_manager.home(x=1440//2, y=3200//2)
+
+    elif "Stop" in action:
+        screenshot_manager.stop(x=1440//2, y=3200//2)
+        exit_loop = True
+        # break
+
+    os.remove(destination_path)
+    # time.sleep(5)
+    return
+
+
 def main():
     args = parse_args()
     instruction = args.instruction
@@ -169,8 +249,7 @@ def main():
     caption_model = args.caption_model
     reflection_switch = args.reflection_switch
     memory_switch = args.memory_switch
-    chat_mode = 'openai' if 'internlm' in API_url else 'requests'
-    chat_mode = 'xiaomi' if 'preview' in API_url else chat_mode
+    chat_mode = get_chat_mode(API_url)
     add_info = "If you want to tap an icon of an app, use the action \"Open app\". If you want to exit an app, use the action \"Home\""
 
     ### Load caption model ###
@@ -207,6 +286,7 @@ def main():
     iter = 0
     while True:
         iter += 1
+
         if iter == 1:
             screenshot_file = "./screenshot/screenshot.jpg"
             perception_infos, width, height = get_perception_infos(temp_file, adb_path, screenshot_file, qwen_api, caption_call_method, caption_model, tokenizer, model, ocr_detection, ocr_recognition, groundingdino_model)
@@ -222,22 +302,20 @@ def main():
                     keyboard = True
                     break
 
+        # Phase1: Action
         prompt_action = get_action_prompt(instruction, perception_infos, width, height, keyboard, summary_history, action_history, summary, action, add_info, error_flag, completed_requirements, memory)
         chat_action = add_response("user", prompt_action, chat_system_init_type='action', image=screenshot_file)
         output_action, stat_info = inference_chat(API_url, token, chat=chat_action, model='gpt-4o', mode=chat_mode, step=' Iter{} -> 1: Action '.format(iter), record_file=memory_record)
         stat_info_history.append(stat_info)
 
-        # import pdb;pdb.set_trace()
         thought = output_action.split("### Thought")[-1].split("### Action")[0].replace("\n", " ").replace(":", "").replace("  ", " ").strip()
         summary = output_action.split("### Operation")[-1].replace("\n", " ").replace("  ", " ").strip()
         action = output_action.split("### Action")[-1].split("### Operation")[0].replace("\n", " ").replace("  ", " ").strip()
         # check perception_infos and action
-        # import pdb;pdb.set_trace()
-
         chat_action = add_response("assistant", output_action, chat_action)
         print_status_func(output_action, " Decision ")
 
-
+        # Phase2: Memory
         if memory_switch:
             prompt_memory = get_memory_prompt(insight)
             chat_action = add_response("user", prompt_memory, chat_action)
@@ -249,47 +327,12 @@ def main():
             output_memory = output_memory.split("### Important content ###")[-1].split("\n\n")[0].strip() + "\n"
             if "None" not in output_memory and output_memory not in memory:
                 memory += output_memory
-        
-        if "Open app" in action:
-            app_name = action.split("(")[-1].split(")")[0]
-            text, coordinate = ocr(screenshot_file, ocr_detection, ocr_recognition)
-            tap_coordinate = [0, 0]
-            for ti in range(len(text)):
-                if app_name == text[ti]:
-                    name_coordinate = [int((coordinate[ti][0] + coordinate[ti][2])/2), int((coordinate[ti][1] + coordinate[ti][3])/2)]
-                    tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1] + 30))
-                    # tap(adb_path, name_coordinate[0], name_coordinate[1]- int(coordinate[ti][3] - coordinate[ti][1]))
-        
-        elif "Tap" in action:
-            coordinate = action.split("(")[-1].split(")")[0].split(", ")
-            x, y = int(coordinate[0]), int(coordinate[1])
-            tap(adb_path, x, y)
-        
-        elif "Swipe" in action:
-            coordinate1 = action.split("Swipe (")[-1].split("), (")[0].split(", ")
-            coordinate2 = action.split("), (")[-1].split(")")[0].split(", ")
-            x1, y1 = int(coordinate1[0]), int(coordinate1[1])
-            x2, y2 = int(coordinate2[0]), int(coordinate2[1])
-            slide(adb_path, x1, y1, x2, y2)
-            
-        elif "Type" in action:
-            if "(text)" not in action:
-                text = action.split("(")[-1].split(")")[0]
-            else:
-                text = action.split(" \"")[-1].split("\"")[0]
-            type(adb_path, text)
-        
-        elif "Back" in action:
-            back(adb_path)
-        
-        elif "Home" in action:
-            home(adb_path)
-            
-        elif "Stop" in action:
+
+        # Phase2.5: ADB and Visualization
+        adb_visualize(iter, action, adb_path, screenshot_file, ocr_detection, ocr_recognition)
+        if exit_loop:
             break
-        
-        time.sleep(5)
-        
+
         ### Last Screenshot and Update the perception_infos ###
         last_perception_infos = copy.deepcopy(perception_infos)
         last_screenshot_file = "./screenshot/last_screenshot.jpg"
@@ -310,6 +353,7 @@ def main():
                 keyboard = True
                 break
         
+        # Phase3: Reflection
         if reflection_switch:
             prompt_reflect = get_reflect_prompt(instruction, last_perception_infos, perception_infos, width, height, last_keyboard, keyboard, summary, action, add_info)
             chat_reflect = add_response_two_image("user", prompt_reflect, chat_system_init_type='reflect', image=[last_screenshot_file, screenshot_file])
@@ -324,9 +368,10 @@ def main():
                 summary_history.append(summary)
                 action_history.append(action)
                 
+                # Phase4: Planning
                 prompt_planning = get_process_prompt(instruction, thought_history, summary_history, action_history, completed_requirements, add_info)
                 chat_planning = add_response("user", prompt_planning, chat_system_init_type='memory')
-                output_planning, stat_info = inference_chat(API_url, token, chat=chat_planning, model='gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Memory '.format(iter), record_file=memory_record)
+                output_planning, stat_info = inference_chat(API_url, token, chat=chat_planning, model='gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Planning '.format(iter), record_file=memory_record)
                 stat_info_history.append(stat_info)
                 chat_planning = add_response("assistant", output_planning, chat_planning)
                 print_status_func(output_planning, " Planning ")
@@ -336,32 +381,38 @@ def main():
             
             elif 'B' in reflect:
                 error_flag = True
+                # TODO 修复保存图片有间断的问题，之前没考虑到reflection的B
+                source_path = './screenshot/output_image.png'
+                destination_path = './memory_record/Iter{}_vis_action_back.png'.format(iter)
+                shutil.copy(source_path, destination_path)
+                screenshot_manager = ScreenshotManager(destination_path, iter)
                 back(adb_path)
+                screenshot_manager.back(x=1440//2, y=3200//2)
                 
             elif 'C' in reflect:
                 error_flag = True
-        
+
+            os.remove(last_screenshot_file)
         else:
             # same to `if 'A' in reflect`
             thought_history.append(thought)
             summary_history.append(summary)
             action_history.append(action)
-            
+
+            # Phase4: Planning
             prompt_planning = get_process_prompt(instruction, thought_history, summary_history, action_history, completed_requirements, add_info)
             chat_planning = add_response("user", prompt_planning, chat_system_init_type='memory')
-            output_planning, stat_info = inference_chat(API_url, token, chat_planning, 'gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Memory '.format(iter), record_file=memory_record)
+            output_planning, stat_info = inference_chat(API_url, token, chat=chat_planning, model='gpt-4-turbo', mode=chat_mode, step=' Iter{} -> 4: Planning '.format(iter), record_file=memory_record)
             stat_info_history.append(stat_info)
             chat_planning = add_response("assistant", output_planning, chat_planning)
             print_status_func(output_planning, " Planning ")
             completed_requirements = output_planning.split("### Completed contents ###")[-1].replace("\n", " ").strip()
-            
-        os.remove(last_screenshot_file)
 
+        # print(stat_info_history)
         # if 'Iter4' in [k for k, _  in stat_info_history[-1].items()][0]:
         #     import pdb;pdb.set_trace()
         #     plot_grouped_distribution(stat_info_history)
         # plot_values(stat_info_history)
-        # print(stat_info_history)
 
 
 if __name__ == '__main__':

@@ -203,21 +203,21 @@ def num_tokens_from_messages(messages, step, model="gpt-4"):
                         if 'text' in item:
                             current_tokens = len(encoding.encode(item['text']))
                             num_tokens += current_tokens
-                        elif 'image_url' in item:
-                            current_image_tokens = len(encoding.encode(item['image_url']['url']))
-                            num_tokens += current_image_tokens
+                        # elif 'image_url' in item:
+                        #     current_image_tokens = len(encoding.encode(item['image_url']['url']))
+                        #     num_tokens += current_image_tokens
                     status = 'list'
             except tiktoken.exceptions.EncodingError as e:
                 print(f"Encoding error: {e}")
-                import pdb; pdb.set_trace()
 
             if key == "name":
                 num_tokens += tokens_per_name
             
-            if num_tokens < 5000:
-                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[:100]}")
+            """
+            if isinstance(value[0], list):
+                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[0][0]}")
             else:
-                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}")
-
+                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[:100]}")
+            """
     print(f"{step}, 总Token数量: {num_tokens}")
     return step, num_tokens

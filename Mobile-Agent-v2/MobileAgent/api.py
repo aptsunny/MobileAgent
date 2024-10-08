@@ -13,12 +13,8 @@ def normalize_gpt4_input(func):
         chat_info = kwargs.get('chat', '')
         step = kwargs.get('step', '')
         record_file = kwargs.get('record_file', '')
-        # 20B
+        # 20B：internlm2.5-latest，7B：internlm2.5-7b-0627
         model_name = 'internlm2.5-latest' if mode == 'openai' else model_name
-        # 7B
-        # model_name = 'internlm2.5-7b-0627' if mode == 'openai' else model_name
-        # 6B xiaomi fail
-        model_name = 'MiLM2.1-6B-Chat' if mode == 'xiaomi' else model_name
         # 13B xiaomi
         # model_name = 'MiLM2.1-13B-Chat' if mode == 'xiaomi' else model_name
 
@@ -30,15 +26,23 @@ def normalize_gpt4_input(func):
             "seed": 1234
         }
 
+        # mi_requests 不需要传入model字段
+        if mode == 'mi_requests':
+            del data["model"]
+
         try:
             for role, content in chat_info:
-                data["messages"].append({"role": role, "content": content})
+                # content_inside = content[0] if isinstance(content, list) and len(content) ==1 else content
+                content_inside = content
+                # import pdb;pdb.set_trace()
+                data["messages"].append({"role": role, "content": content_inside})
         except Exception as e:
             print(f"处理聊天信息时出错: {e}")
             return None
-        # import pdb;pdb.set_trace()
 
-        if mode in ['openai', 'xiaomi']:
+        # save_list_of_dicts_as_json([data], filename='{}/{}_before_process.json'.format(record_file, generate_filename(step)))
+
+        if mode in ['openai', 'xiaomi']: # only chat model
             try:
                 # ignore assistant
                 # image_url = data['messages'][1]['content'][1]['≈']['url']
@@ -66,9 +70,27 @@ def normalize_gpt4_input(func):
             except Exception as e:
                 print(f"处理 openai 模式时出错: {e}")
                 return None
+        if mode == 'mi_requests':
+            try:
+                # action_input
+                if len(data['messages']) == 2:
+                    data['messages'][0]['content'] = data['messages'][0]['content'][0].get('text', '')
+                    # data['messages'][1]['content'] = data['messages'][1]['content'][0].get('text', '')
+                    if len(data['messages'][1]['content']) == 1:
+                        data['messages'][1]['content'] = data['messages'][1]['content'][0].get('text', '')
+                elif len(data['messages']) == 4:
+                    data['messages'][0]['content'] = data['messages'][0]['content'][0].get('text', '')
+                    # data['messages'][1]['content'] = data['messages'][1]['content'][0].get('text', '')
+                    data['messages'][2]['content'] = data['messages'][2]['content'][0].get('text', '')
+                    data['messages'][3]['content'] = data['messages'][3]['content'][0].get('text', '')
+            except IndexError:
+                print("数据格式不符合预期")
+                return None
+            except Exception as e:
+                print(f"处理 openai 模式时出错: {e}")
+                return None
 
-        save_list_of_dicts_as_json([data], filename='{}/{}_output.json'.format(record_file, generate_filename(step)))
-
+        save_list_of_dicts_as_json([data], filename='{}/{}_input.json'.format(record_file, generate_filename(step)))
         kwargs['data'] = data
         try:
             step, num_tokens = num_tokens_from_messages(data["messages"], step)
@@ -78,6 +100,11 @@ def normalize_gpt4_input(func):
             return None
 
         output = func(*args, **kwargs)
+
+        output_info = [dict(result=output[0])]
+        save_list_of_dicts_as_json(output_info, filename='{}/{}_output.json'.format(record_file, generate_filename(step)))
+        output_step = '{} output'.format(step)
+        num_tokens_from_messages(output_info, output_step)
         return output
     return wrapper
 
@@ -100,6 +127,37 @@ def inference_chat(api_url, token, chat=None, model=None, data=None, mode='reque
                     print("Request Failed")
             else:
                 break
+    elif mode == 'mi_requests':
+        api_urls = []
+        api_urls = [item for item in api_urls for _ in range(50)]
+        import random;random.shuffle(api_urls)
+
+        attempt_count = 0
+        successful_api_url = None
+        response_data = None
+        for api_url in api_urls:
+            try:
+                attempt_count += 1
+                print(f"请求第{attempt_count}次，第{attempt_count}次使用的API是：{api_url}")
+                response = requests.post(api_url, json=data)
+                # 如果响应状态码不是200，将抛出HTTPError异常
+                # response.raise_for_status() 
+                response_data = response.json()
+                
+                if 'response' in response_data:
+                    res_content = response_data['response']
+                    if 'ERROR' not in res_content:
+                        successful_api_url = api_url
+                        break
+                else:
+                    print(f"请求状态码不是200，状态码：{response.status_code}, 实际上429: {api_url}")
+            except requests.exceptions.RequestException as e:
+                print(f"请求失败：{e}")
+                continue
+        if successful_api_url:
+            print(f"总共尝试了{attempt_count}次，第{attempt_count}次使用的API是：{successful_api_url}")
+        else:
+            print("所有API尝试均失败。")
     elif mode in ['openai', 'xiaomi']:
         from openai import OpenAI
         client = OpenAI(api_key=token, base_url=api_url)
