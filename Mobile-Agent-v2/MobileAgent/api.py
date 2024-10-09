@@ -127,6 +127,7 @@ def normalize_gpt4_input(func):
         kwargs['data'] = data
         try:
             # data['messages'][1]['content']
+            # import pdb;pdb.set_trace()
             step, num_input_tokens = num_tokens_from_messages(data["messages"], step)
             kwargs['num_input_tokens'] = num_input_tokens
         except Exception as e:
@@ -167,8 +168,17 @@ def inference_chat(api_url, token, chat=None, model=None, data=None, mode='reque
             else:
                 break
     elif mode == 'mi_requests':
-        api_urls = ['http://preview-general-llm.api.ai.srv/api/gpt-4o/liuhuiwen']
-        api_urls = [item for item in api_urls for _ in range(10)]
+        api_urls = [
+            # gpt4o
+            'http://preview-general-llm.api.ai.srv/api/gpt-4o/liuhuiwen',
+            'http://preview-general-llm.api.ai.srv/api/gpt-4o/luyashan1',
+            'http://preview-general-llm.api.ai.srv/api/gpt-4o/weilai8',
+            'http://preview-general-llm.api.ai.srv/api/gpt-4o/liuwei40',
+            # gpt4v
+            # 'http://preview-general-llm.api.ai.srv/api/gpt-4v/liuhuiwen',
+            # 'http://preview-general-llm.api.ai.srv/api/gpt-4v/luyashan1',
+        ]
+        api_urls = [item for item in api_urls for _ in range(50)]
         import random;random.shuffle(api_urls)
 
         attempt_count = 0
