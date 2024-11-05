@@ -1,15 +1,11 @@
-import json, os, copy
-from PIL import Image, ImageDraw, ImageFont
-import xml.etree.ElementTree as ET
 import xmltodict
+import requests, time, re, argparse, json, os, copy
+import tkinter as tk
+import xml.etree.ElementTree as ET
 
+from PIL import Image, ImageDraw, ImageFont
 from abc import abstractmethod
 from typing import List
-import requests
-import time
-import re
-
-import tkinter as tk
 from tkinter import simpledialog
 
 max_level = 0
@@ -493,7 +489,10 @@ def visualize_graph(json_file_path, png_file_path, output_file_path, font_path):
     background_image.save(output_file_path)
 
 
-def plan_v1_parse_ui_xml(xml_file, save_json, save_txt, png_file_path, output_file_path, font_path):
+def plan_v1_parse_ui_xml(xml_file, target_prefix, png_file_path, font_path):
+    save_json, save_txt = xml_file.replace(target_prefix, '-vh.json'), \
+        xml_file.replace(target_prefix, '-vh.txt')
+    output_file_path = png_file_path.replace('.png', '_visualization.png')
     # 解析ui信息主函数 来自 yueyue
     dict_data = parse_ui_xml(xml_file)
     with open(save_json, 'w', encoding='utf8') as f:
@@ -635,7 +634,7 @@ def merge_from_view_group_idx(elements):
     return elements
 
 
-def plan_v2_parse_ui_xml(xml_file):
+def plan_v2_parse_ui_xml(xml_file, check_xml_list=False):
     step1_data_info=[]
     # xml2json
     with open(xml_file, encoding='utf-8') as file:
@@ -646,9 +645,10 @@ def plan_v2_parse_ui_xml(xml_file):
     result = extract_bounds_and_info(data_dict['hierarchy']['node'], info_list=[])
 
     # 打印 检查基础JSON信息, level 是层级关系
-    # for idx, item in enumerate(result):
-    #     if item['clickable'] == 'true':
-    #         print(f"{idx}: {item['level']}, Clickable: {item['clickable']}, Class: {item['class']}, Bounds: {item['bounds']}, Text: {item['text']}, Index: {item['index']}, Resource ID: {item['resource-id']}")
+    if check_xml_list:
+        for idx, item in enumerate(result):
+            # if item['clickable'] == 'true':
+            print(f"{idx}: {item['level']}, Clickable: {item['clickable']}, Class: {item['class']}, Bounds: {item['bounds']}, Text: {item['text']}, Index: {item['index']}, Resource ID: {item['resource-id']}")
 
     # 复杂的筛选逻辑 根据 android.view.ViewGroup 以及后续序号是 Index 0、1、2等，将后续的信息 结合到当前 text
     result_1 = merge_from_view_group_idx(result)
@@ -660,14 +660,7 @@ def plan_v2_parse_ui_xml(xml_file):
         vis_flag = False
         top_left, bottom_right = info_dict['bounds']
         text, resource_id, clickable, index = info_dict['text'], info_dict['resource-id'], info_dict['clickable'], info_dict['index']
-
-        # 绘制矩形框
-        # if clickable == 'true' and (text != '' or resource_id != ''):
-        # if (text != '' or resource_id != ''):
-        # 可点击 或者 不可点击但是有文字内容
-        # if clickable == 'true' or (text != '' and clickable == 'false'):
-        # 所有框
-        # if clickable != 'xx':
+        class_name = info_dict['class']
 
         # debug text
         label_text = f"Idx: {idx}\nText: {text}\nResource ID: {resource_id}\nClickable: {clickable}\nIndex: {index}"
@@ -706,7 +699,14 @@ def plan_v2_parse_ui_xml(xml_file):
             
             'function_arrow',
         ]
-        if clickable == 'true' and resource_id.split('/')[-1] in knowledge_base:
+
+        # if idx==64:
+        #     import pdb;pdb.set_trace()
+        if clickable == 'false' and class_name == 'android.widget.TextView' and text != '':
+            label_text = text
+            vis_flag = True
+
+        elif clickable == 'true' and resource_id.split('/')[-1] in knowledge_base:
             if resource_id.split('/')[-1] == 'ivBackButton':
                 label_text = '返回'
             elif resource_id.split('/')[-1] == 'ivIngredientButton':
@@ -794,45 +794,74 @@ def plan_v2_parse_ui_xml(xml_file):
             h_diff = bottom_right[1] - top_left[1]
             w_diff = bottom_right[0] - top_left[0]
             # print(h_diff * w_diff)
-            # h_diff/w_diff > 0.13
-            if h_diff > 100 and h_diff * w_diff < 3000000:
+            # h_diff/w_diff > 0.13 有些字体45
+            if h_diff > 44 and h_diff * w_diff < 3000000:
                 step1_data_info.append((top_left, bottom_right, box_color, label_text, font_color))
 
     # import pdb;pdb.set_trace()
     return step1_data_info
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='XML Parse')
+    parser.add_argument('dump_bbox_output', help='xml_anno_info_single_folder.json')
+    parser.add_argument('--trajectory-xml-folder',
+                        default=r"D:\workspace\feikuai\2024-10-23_20-17-28",
+                        help='Method to call captioning service')
+    parser.add_argument('--target-prefix',
+                        default='.xml',
+                        help='x')
+    parser.add_argument('--font-path',
+                        default='Mobile-Agent-v2/projects/ttf_file/SimSun.ttf',
+                        help='Path to the adb executable')
+    parser.add_argument('--need-modify',
+                        action='store_true',
+                        default=False,
+                        help='need to modify by handcode')
+    parser.add_argument('--check-xml-list',
+                        action='store_true',
+                        default=False,
+                        help='Enable memory switch')
+    try:
+        args = parser.parse_args()
+    except SystemExit as e:
+        print("Error parsing arguments:", e)
+        exit(1)
+
+    return args
+
+
 def main():
     global anno_info, anno_info_collect
 
-    # 完整数据路径，包含XML数据
-    # base_dir = r"D:\workspace\feikuai"
-    base_dir = r"D:\workspace\feikuai\2024-10-23_20-17-28"
-    target_prefix = '.xml'
-    target_output = 'xml_anno_info_single_folder.json'
-    font_path = r"D:\workspace\MobileAgent\Mobile-Agent-v2\projects\ttf_file\SimSun.ttf"
+    args = parse_args()
+    trajectory_xml_folder = args.trajectory_xml_folder # 完整数据路径，包含XML数据
+    target_prefix = args.target_prefix
+    font_path = args.font_path
+    dump_bbox_output = args.dump_bbox_output
+    need_modify = args.need_modify # 如果需要人工检查, 弹出窗口让用户修改结果
+    check_xml_list = args.check_xml_list
     referring_prompt = "请以'[显示内容]'的格式，用10个字以内简述手机截图中红框区域的具体显示内容, 如果空白或者无意义，则填写[空]"
-    # 如果需要人工检查, 弹出窗口让用户修改结果
-    need_modify = False
-
-    # gpt4o referring
+    # gpt4o referring 
     model = MifyModel()
 
-    for subdir, dirs, files in os.walk(base_dir):
+    # parse xml
+    for subdir, dirs, files in os.walk(trajectory_xml_folder):
         for file in files:
+            # print(subdir, dirs, files)
+            # import pdb;pdb.set_trace()
             if True:
             # try:
                 if file.endswith(target_prefix):
-                    # save_json, save_txt = xml_file.replace(target_prefix, '-vh.json'), \
-                    #     xml_file.replace(target_prefix, '-vh.txt')
-                    # output_file_path = png_file_path.replace('.png', '_visualization.png')
                     xml_file = os.path.join(subdir, file)
                     png_file_path = xml_file.replace(target_prefix, '.png').replace('ui_dump', 'screenshot')
                     output_file_path_plan2 = png_file_path.replace('.png', '_visualization_plan2.png')
                     save_anchor_dir = png_file_path.replace('.png', '_bbox')
                     
                     # unit test
-                    if file != 'ui_dump_1729685850.xml':
+                    # if file != 'ui_dump_1729648264.xml':
+
+                    # if file != 'ui_dump_1729685850.xml':
                     # if file != 'ui_dump_1729685865.xml':
                     # if file != 'ui_dump_1729685884.xml':
                     # if file != 'ui_dump_1729685901.xml':
@@ -846,13 +875,13 @@ def main():
                     # if file != 'ui_dump_1729686054.xml':
                     # if file != 'ui_dump_1729686070.xml':
                     # if file != 'ui_dump_1729686079.xml':
-                        continue
+                        # continue
                     
-                    # plan1 的可视化结果
-                    # plan_v1_parse_ui_xml(xml_file, save_json, save_txt, png_file_path, output_file_path, font_path)
+                    # parse1 的结果
+                    # plan_v1_parse_ui_xml(xml_file, target_prefix, png_file_path, font_path)
                     
-                    # plan2 的结果
-                    step1_data_info = plan_v2_parse_ui_xml(xml_file)
+                    # parse2 的结果
+                    step1_data_info = plan_v2_parse_ui_xml(xml_file, check_xml_list)
                     print('\n{} bbox: {}\n'.format(xml_file, len(step1_data_info)))
 
                     # vis and record
@@ -905,9 +934,11 @@ def main():
             #     import pdb;pdb.set_trace()
             #     print('error in {}'.format(file))
 
-    with open(target_output, 'w', encoding='utf-8') as f:
+    # dump trajectory_xml_folder bbox
+    with open(dump_bbox_output, 'w', encoding='utf-8') as f:
         json.dump(anno_info_collect, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == "__main__":
+
     main()
