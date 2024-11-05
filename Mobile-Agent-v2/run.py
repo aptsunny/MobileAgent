@@ -78,7 +78,7 @@ def get_perception_infos(temp_file, adb_path, screenshot_file, qwen_token, capti
     
     text, coordinates = ocr(screenshot_file, ocr_detection, ocr_recognition)
     text, coordinates = merge_text_blocks(text, coordinates)
-    
+    # text
     center_list = [[(coordinate[0]+coordinate[2])/2, (coordinate[1]+coordinate[3])/2] for coordinate in coordinates]
     draw_coordinates_on_image(screenshot_file, center_list)
     
@@ -86,7 +86,7 @@ def get_perception_infos(temp_file, adb_path, screenshot_file, qwen_token, capti
     for i in range(len(coordinates)):
         perception_info = {"text": "text: " + text[i], "coordinates": coordinates[i]}
         perception_infos.append(perception_info)
-        
+    # icon
     coordinates = det(screenshot_file, "icon", groundingdino_model)
     
     for i in range(len(coordinates)):
