@@ -22,9 +22,9 @@ class BaseModel:
 class MifyModel(BaseModel):
     def __init__(self):
         super().__init__()
-        self.chat_url = "https://mify-be.pt.xiaomi.com/api/v1/chat-messages"
-        self.upload_url = "https://mify-be.pt.xiaomi.com/api/v1/files/upload"
-        self.api_key = "app-yduZZpkQa8iwbdOcY1nVe4hd"
+        self.chat_url = ""
+        self.upload_url = ""
+        self.api_key = ""
 
     def upload_image(self, image_path):
         headers = {

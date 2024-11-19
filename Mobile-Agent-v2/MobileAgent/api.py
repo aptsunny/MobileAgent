@@ -168,16 +168,7 @@ def inference_chat(api_url, token, chat=None, model=None, data=None, mode='reque
             else:
                 break
     elif mode == 'mi_requests':
-        api_urls = [
-            # gpt4o
-            'http://preview-general-llm.api.ai.srv/api/gpt-4o/liuhuiwen',
-            'http://preview-general-llm.api.ai.srv/api/gpt-4o/luyashan1',
-            'http://preview-general-llm.api.ai.srv/api/gpt-4o/weilai8',
-            'http://preview-general-llm.api.ai.srv/api/gpt-4o/liuwei40',
-            # gpt4v
-            # 'http://preview-general-llm.api.ai.srv/api/gpt-4v/liuhuiwen',
-            # 'http://preview-general-llm.api.ai.srv/api/gpt-4v/luyashan1',
-        ]
+        api_urls = []
         api_urls = [item for item in api_urls for _ in range(50)]
         import random;random.shuffle(api_urls)
 
