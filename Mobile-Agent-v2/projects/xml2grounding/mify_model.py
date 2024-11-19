@@ -48,7 +48,7 @@ class MifyModel(BaseModel):
                 try_cnt += 1
                 try:
                     # 发送POST请求
-                    response = requests.post(self.upload_url,headers=headers,files=files,data=data)
+                    response = requests.post(self.upload_url, headers=headers, files=files, data=data)
                     # 检查响应状态
                     response.raise_for_status()
                     return True, response.json()["id"]
@@ -93,6 +93,7 @@ class MifyModel(BaseModel):
             try_cnt += 1
             try:
                 # 发送POST请求
+                # import pdb;pdb.set_trace()
                 response = requests.post(self.chat_url, headers=headers, json=payload)
                 # 检查响应状态
                 response.raise_for_status()
@@ -109,5 +110,6 @@ class MifyModel(BaseModel):
 if __name__ == '__main__':
     model = MifyModel()
     # model.upload_image("icon_vis_image.png")
-    status, answer = model.get_model_response("图中框都是什么含义?", ["icon_vis_image.jpg"])
+    status, answer = model.get_model_response("图中框都是什么含义?", [r"D:\workspace\feikuai\2024-10-23_09-50-17\screenshot_1729648229_omni_output.png"])
+    # status, answer = model.get_model_response("今天天气怎么样？")
     print(status, answer)

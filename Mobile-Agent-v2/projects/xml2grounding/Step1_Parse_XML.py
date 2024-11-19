@@ -1,12 +1,12 @@
 import xmltodict
-import requests, time, re, argparse, json, os, copy
+import re, argparse, json, os, copy
 import tkinter as tk
 import xml.etree.ElementTree as ET
 
 from PIL import Image, ImageDraw, ImageFont
-from abc import abstractmethod
-from typing import List
 from tkinter import simpledialog
+
+from .mify_model import MifyModel
 
 max_level = 0
 anno_info = dict()
@@ -26,108 +26,6 @@ colors = [
     (173, 255, 47),     # 鲜绿色
     (255, 255, 255)     # 白色
 ]
-
-class BaseModel:
-    def __init__(self):
-        pass
-
-    @abstractmethod
-    def get_model_response(self, prompt: str, images: List[str]) -> (bool, str):
-        pass
-
-
-class MifyModel(BaseModel):
-    def __init__(self):
-        super().__init__()
-        self.chat_url = "https://mify-be.pt.xiaomi.com/api/v1/chat-messages"
-        self.upload_url = "https://mify-be.pt.xiaomi.com/api/v1/files/upload"
-        self.api_key = "app-yduZZpkQa8iwbdOcY1nVe4hd"
-
-    def upload_image(self, image_path):
-        headers = {
-            'Authorization': f'Bearer {self.api_key}'
-        }
-        
-        # 获取文件类型
-        file_extension = os.path.splitext(image_path)[1].lower()
-        content_type = {
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.webp': 'image/webp',
-            '.gif': 'image/gif'
-        }.get(file_extension)
-
-        # 准备文件和表单数据
-        with open(image_path, 'rb') as file:
-            files = {
-                'file': (os.path.basename(image_path), file, content_type)
-            }
-            data = {'user': "abc-123"}
-            
-            try_cnt = 0
-            while try_cnt < 5:
-                try_cnt += 1
-                try:
-                    # 发送POST请求
-                    response = requests.post(self.upload_url,headers=headers,files=files,data=data)
-                    # 检查响应状态
-                    response.raise_for_status()
-                    return True, response.json()["id"]
-                    
-                except Exception as e:
-                    print("[API ERROR]!!!  Json Decode Error!!!", "red")
-                    print(response.text, "red")
-                    time.sleep(10)
-                    continue
-        return False, "API ERROR"
-
-    def get_model_response(self, prompt: str, images: List[str]=[]) -> (bool, str):
-        images_id = []
-        if images is not None and len(images) > 0:
-            for i in range(len(images)):
-                status, image_id = self.upload_image(images[i])
-                if status:
-                    print(f'Upload image({images[i]}) succed!')
-                    images_id.append(image_id)
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-        
-        payload = {
-            "inputs": {},
-            "query": prompt,
-            "response_mode": "blocking",
-            "conversation_id": "",
-            "user": "abc-123",
-            "files": []
-        }
-        for img_id in images_id:
-            payload["files"].append({
-                "type": "image",
-                "transfer_method": "local_file",
-                "upload_file_id": img_id
-            })
-        try_cnt = 0
-        while try_cnt < 5:
-            try_cnt += 1
-            try:
-                # 发送POST请求
-                response = requests.post(self.chat_url, headers=headers, json=payload)
-                # 检查响应状态
-                response.raise_for_status()
-                return True, response.json()["answer"]
-                
-            except Exception as e:
-                print("[API ERROR]!!!  Json Decode Error!!!", "red")
-                print(response.text, "red")
-                time.sleep(10)
-                continue
-        
-        return False, "API ERROR"
-
 
 def extract_content(text):
     # 使用正则表达式匹配方括号内的内容
@@ -841,7 +739,11 @@ def main():
     dump_bbox_output = args.dump_bbox_output
     need_modify = args.need_modify # 如果需要人工检查, 弹出窗口让用户修改结果
     check_xml_list = args.check_xml_list
+
+    # parse2 的结果
     referring_prompt = "请以'[显示内容]'的格式，用10个字以内简述手机截图中红框区域的具体显示内容, 如果空白或者无意义，则填写[空]"
+    # parse3 omniparse
+
     # gpt4o referring 
     model = MifyModel()
 
@@ -850,8 +752,8 @@ def main():
         for file in files:
             # print(subdir, dirs, files)
             # import pdb;pdb.set_trace()
-            if True:
-            # try:
+            # if True:
+            try:
                 if file.endswith(target_prefix):
                     xml_file = os.path.join(subdir, file)
                     png_file_path = xml_file.replace(target_prefix, '.png').replace('ui_dump', 'screenshot')
@@ -874,8 +776,8 @@ def main():
                     # if file != 'ui_dump_1729686039.xml':
                     # if file != 'ui_dump_1729686054.xml':
                     # if file != 'ui_dump_1729686070.xml':
-                    # if file != 'ui_dump_1729686079.xml':
-                        # continue
+                    if file != 'ui_dump_1729686079.xml':
+                        continue
                     
                     # parse1 的结果
                     # plan_v1_parse_ui_xml(xml_file, target_prefix, png_file_path, font_path)
@@ -883,6 +785,12 @@ def main():
                     # parse2 的结果
                     step1_data_info = plan_v2_parse_ui_xml(xml_file, check_xml_list)
                     print('\n{} bbox: {}\n'.format(xml_file, len(step1_data_info)))
+                    # import pdb;pdb.set_trace()
+                    # ((77, 1074), (1200, 1143), 'red', '选择支付方式', 'red')
+                    # ((1085, 2133), (1149, 2197), 'red', 34, 'red')
+
+                    # parse3 omniparse
+                    # plan_v3_omniparse
 
                     # vis and record
                     image = Image.open(png_file_path)
@@ -916,7 +824,7 @@ def main():
                             label_text = extract_content(gpt4o_result)
 
                             draw.rectangle([top_left, bottom_right], outline=box_color, width=5)
-                            draw.text((top_left[0] + 5, top_left[1]), label_text, fill=font_color, font=font)      
+                            draw.text((top_left[0] + 5, top_left[1]), label_text, fill=font_color, font=font)
 
                         if label_text != '空':
                             anno_info.update({label_text: (top_left[0], top_left[1], bottom_right[0], bottom_right[1])})
@@ -930,9 +838,9 @@ def main():
                     # import pdb;pdb.set_trace()
                     with open('{}.json'.format(save_anchor_dir), 'w', encoding='utf-8') as f:
                         json.dump(anno_info_collect, f, ensure_ascii=False, indent=4)
-            # except:
-            #     import pdb;pdb.set_trace()
-            #     print('error in {}'.format(file))
+            except:
+                # import pdb;pdb.set_trace()
+                print('error in {}'.format(file))
 
     # dump trajectory_xml_folder bbox
     with open(dump_bbox_output, 'w', encoding='utf-8') as f:
@@ -940,5 +848,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
