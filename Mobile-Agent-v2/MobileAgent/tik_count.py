@@ -1,9 +1,42 @@
-import re
+import base64
+from PIL import Image
+from io import BytesIO
+import math, re
 import json
 import tiktoken
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
+
+
+def get_image_dims(image):
+    image = re.sub(r"data:image\/\w+;base64,", "", image)
+    image = Image.open(BytesIO(base64.b64decode(image)))
+    return image.size
+
+
+def calculate_image_token_cost(image, detail="high"):
+    # https://platform.openai.com/docs/guides/vision/calculating-costs
+    LOW_DETAIL_COST = 85
+    HIGH_DETAIL_COST_PER_TILE = 170
+
+    width, height = get_image_dims(image)
+
+    if detail == "low":
+        return LOW_DETAIL_COST
+
+    # Resize logic for images larger than 2048x2048
+    if max(width, height) > 2048:
+        ratio = 2048 / max(width, height)
+        width = int(width * ratio)
+        height = int(height * ratio)
+
+    # Calculate number of tiles needed for high detail
+    num_tiles = math.ceil(width / 512) * math.ceil(height / 512)
+    total_tokens = LOW_DETAIL_COST + (HIGH_DETAIL_COST_PER_TILE * num_tiles)
+
+    return total_tokens
+
 
 def generate_filename(input_string):
     # Delete all the spaces in the string
@@ -311,9 +344,9 @@ def num_tokens_from_messages(messages, step, model="gpt-4"):
                         if 'text' in item:
                             current_tokens = len(encoding.encode(item['text']))
                             num_tokens += current_tokens
-                        # elif 'image_url' in item:
-                        #     current_image_tokens = len(encoding.encode(item['image_url']['url']))
-                        #     num_tokens += current_image_tokens
+                        elif 'image_url' in item:
+                            current_image_tokens = calculate_image_token_cost(item['image_url']['url'])
+                            num_tokens += current_image_tokens
                     status = 'list'
             except tiktoken.exceptions.EncodingError as e:
                 print(f"Encoding error: {e}")
@@ -321,11 +354,10 @@ def num_tokens_from_messages(messages, step, model="gpt-4"):
             if key == "name":
                 num_tokens += tokens_per_name
             
-            """
-            if isinstance(value[0], list):
-                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[0][0]}")
+            if isinstance(value, list):
+                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[0]['text'][:20]}")
             else:
-                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[:100]}")
-            """
+                print(f"{status:<10} | key: {key:<15} | num_tokens: {normal_tokens}, {current_tokens}, {current_image_tokens}, {value[:20]}")
+
     print(f"{step}, 总Token数量: {num_tokens}")
     return step, num_tokens
